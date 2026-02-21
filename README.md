@@ -31,31 +31,69 @@ echo 'alias session-recovery="python3 /path/to/session_recovery.py"' >> ~/.zshrc
 
 ## Usage
 
-### Interactive Mode (recommended for first use)
+### Interactive Mode (recommended — shows the full hierarchy)
 
 ```bash
 python3 session_recovery.py
 ```
 
-Walks you through:
-1. **Project selection** — lists all Claude Code project directories with size and session count
-2. **Session selection** — lists sessions newest-first with topic hints; flags sessions >5MB that are most likely to be corrupted
-3. **Options** — include tool calls, timestamps, custom output directory
-4. **Export** — writes Markdown files and reports the output paths
+Displays the complete **project → spec → session hierarchy** in a tree view, then lets you pick sessions directly by number:
+
+```
+Claude Code  ·  Project & Session Hierarchy
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  📁 ~/VSCodeRepos/markwoitaszek/gpu-photo-pipeline
+     │  spec: GPU photo pipeline with CUDA acceleration and parallel processing
+     │  5 session(s)  ·  31.1 MB total  ·  last active 2026-02-21 00:24
+     │
+     ├─ Today
+     │    ├─ [ 1] ef714850  2026-02-21 00:24    4.5 MB  ⚠ CRASH RISK
+     │    │        /visionary-studios:pr-code-review PR #203
+     │    └─ [ 2] c51c28ff  2026-02-21 00:14    2.7 MB  ⚠ CRASH RISK
+     │             /visionary-studios:pr-code-review PR #203
+     ├─ Yesterday
+     │    ├─ [ 3] 2ce34ca7  2026-02-20 23:23    8.4 MB  ⚠ CRASH RISK
+     │    │        /visionary-studios:test-audit PR #201
+     │    └─ [ 4] 26aded10  2026-02-20 18:26   15.4 MB  ⚠ CRASH RISK
+     │             enterprise branch audit — full codebase scan
+     ─────────────────────────────────────────────────────────────────────────
+
+Select sessions to recover:
+  Enter numbers 1–4, comma-separated (1,3), ranges (2-5), or 'a' for all
+
+  →
+```
+
+- **⚠ CRASH RISK** — session is likely unloadable in the desktop app (large + XML skill tags detected)
+- **◈ LARGE** — session is large but may still render
+- Select by **number**, **range** (`2-4`), **comma list** (`1,3`), or **`a`** for all
+
+### `--tree` — Hierarchy view only (no export)
+
+```bash
+python3 session_recovery.py --tree
+python3 session_recovery.py --tree --project gpu
+```
+
+Displays the full hierarchy and exits — useful for a quick overview of all projects and their sessions.
 
 ### CLI Flags
 
 ```bash
+# Show full project/session hierarchy (read-only)
+python3 session_recovery.py --tree
+
 # Filter projects and recover last N sessions
 python3 session_recovery.py --project gpu --last 2
 
 # Recover a specific session by ID prefix
 python3 session_recovery.py --session ef714850
 
-# List all projects (no export)
+# List all projects (compact, no session detail)
 python3 session_recovery.py --all-projects
 
-# List all projects AND their sessions
+# List all projects AND their sessions (compact)
 python3 session_recovery.py --list
 
 # Include tool call/result details in the output
@@ -70,8 +108,9 @@ python3 session_recovery.py --session ef714850 --no-timestamps
 
 | Flag | Short | Description |
 |------|-------|-------------|
+| `--tree` | `-T` | Display full project/specification/session hierarchy |
 | `--project TEXT` | `-p` | Filter projects by name substring |
-| `--list` | `-l` | List all projects and their sessions |
+| `--list` | `-l` | List all projects and their sessions (compact) |
 | `--all-projects` | `-A` | List all projects (no session detail) |
 | `--session ID` | `-s` | Extract one session by ID (prefix match) |
 | `--last N` | `-n` | Extract last N sessions from matched project |
@@ -97,7 +136,15 @@ Where `<workspace-slug>` is the absolute workspace path with every `/` replaced 
 /Users/you/repos/my-project  →  -Users-you-repos-my-project
 ```
 
-Each line in the JSONL is a typed event record:
+Project specifications (memory / context) live in:
+
+```
+<workspace>/CLAUDE.md         # project-level spec — shown in the hierarchy tree
+<workspace>/CLAUDE.local.md   # local overrides (not committed)
+~/.claude/CLAUDE.md           # global spec
+```
+
+Each line in a session JSONL is a typed event record:
 
 | `type` | Contents |
 |--------|----------|
@@ -158,13 +205,26 @@ Files are named:
 
 ### "There was a problem with the session"
 
-The desktop app can no longer render the session. Run:
+The desktop app can no longer render the session. Run the interactive mode — crashed sessions are automatically flagged with **⚠ CRASH RISK**:
 
 ```bash
-python3 session_recovery.py --list
-# identify the affected session ID from the timestamp/size
+python3 session_recovery.py
+# Select the flagged session numbers and press Enter
+```
 
-python3 session_recovery.py --session <id-prefix>
+Or recover a specific session directly:
+
+```bash
+python3 session_recovery.py --session ef714850
+```
+
+### Browse everything first, then pick
+
+```bash
+python3 session_recovery.py --tree
+# Read the tree, note the numbers you want, then:
+python3 session_recovery.py
+# Type: 1,3 or 2-5 or a
 ```
 
 ### Recovering the last 2 sessions for a project
@@ -182,21 +242,21 @@ python3 session_recovery.py --session ef714850 --include-tools
 ### Don't know which project
 
 ```bash
-python3 session_recovery.py --list
+python3 session_recovery.py --tree
 ```
-Use the interactive list (newest-first, with topic hints) to identify the right project/session.
 
 ---
 
 ## Known Limitations
 
 - **Path reconstruction is heuristic.** Because Claude encodes directory slugs by replacing `/` with `-`, project names with hyphens (like `gpu-photo-pipeline`) are ambiguous in the slug. The utility walks filesystem prefix splits to find a matching path, which works in most cases but may misidentify project names in the metadata header. The JSONL content is always correctly parsed regardless.
-- **Tool results are truncated to 800 chars** by default to keep Markdown readable. Use `--include-tools` to expand them (be warned: output can be very large for sessions with heavy tool use).
+- **Tool results are truncated to 800 chars** by default to keep Markdown readable. Use `--include-tools` to expand them (output can be very large for sessions with heavy tool use).
 - **Python 3.10+ required** for the `list[dict]` type hint syntax. Python 3.9 users can replace `list[dict]` with `List[Dict]` from `typing`.
+- **`%-d` date formatting** (day without leading zero) is Linux/macOS only. On Windows, replace with `%d`.
 
 ---
 
 ## Related
 
-- [bug-report.md](./bug-report.md) — Full investigation of the React hydration crash in the Claude desktop app
+- [bug-report.md](./bug-report.md) — Full investigation of the React hydration crash in the Claude desktop app (filed as [anthropics/claude-code#27345](https://github.com/anthropics/claude-code/issues/27345))
 - [Claude Code documentation](https://docs.anthropic.com/claude-code)
